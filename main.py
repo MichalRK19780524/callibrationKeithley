@@ -18,7 +18,7 @@ class SipmType(Enum):
 epsilon = 0.000001
 ip = '10.2.0.126'
 port = 5555
-bar_id = 12
+bar_id = 10
 
 
 def print_hi(name):
@@ -57,13 +57,15 @@ def measure_AFE_voltage_slave(connection: lanconnection.LanConnection):
     return connection.do_cmd(['adc', bar_id, 4])[1]
 
 
-def measure_AFE_all(connection: lanconnection.LanConnection) -> (int, int, int, int):
+def measure_AFE_all(connection: lanconnection.LanConnection) -> (int, int, int, int, int, int):
     measured_master_voltage = connection.do_cmd(['adc', bar_id, 3])[1]
     measured_slave_voltage = connection.do_cmd(['adc', bar_id, 4])[1]
     measured_master_current = connection.do_cmd(['adc', bar_id, 5])[1]
     measured_slave_current = connection.do_cmd(['adc', bar_id, 6])[1]
     return measured_master_voltage, measured_slave_voltage, measured_master_current, measured_slave_current
 
+def measure_AFE_temp(connection: lanconnection.LanConnection) -> (int, int):
+    return connection.do_cmd(['gettemp', bar_id])[1]
 
 def stability(end_date: float, step: float, step_keithley: float, set_voltage: float, waiting_time: float,
               file_name: str):
@@ -131,6 +133,68 @@ def stability(end_date: float, step: float, step_keithley: float, set_voltage: f
         connection.close_connection()
         print(exc)
 
+def stability_temp(end_date: float, step: float, step_keithley: float, set_voltage: float, waiting_time: float,
+              file_name: str):
+    connection = lanconnection.LanConnection(ip, port)
+    try:
+        result = connection.do_cmd(['init', bar_id])
+        if result[0] == 'ERR':
+            print("Error when init")
+        print("init OK")
+
+        result = connection.do_cmd(['hvon', bar_id])
+        if result[0] == 'ERR':
+            print("Error when hvon")
+        print("hvon OK")
+
+        if os.path.exists(file_name):
+            raise Exception("File already exists!")
+
+        _headers = ('date UTC since epoch [s]', 'date from Keithley', 'Voltage AFE U[V]', 'Temperature SiPM master [bit]', 'Temperature SiPM slave [bit]', 'Temperature keithley [centigrade]')
+
+        with open(file_name, mode='w', newline='') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=_headers)
+            writer.writeheader()
+            time.sleep(waiting_time)
+            current_time = time.time()
+            print(current_time)
+            voltage_result = connection.do_cmd(['setdac', bar_id, set_voltage, set_voltage])
+            print(voltage_result)
+            keithley = keithley_util.Keithley6517()
+            while current_time < end_date:
+                measure_dict = {}
+                time.sleep(step)
+                result = measure_AFE_temp(connection)
+                result_keithley = keithley.measure()
+                r_num = result_keithley['rNum']
+                while result_keithley['rNum'] == r_num:
+                    r_num = result_keithley['rNum']
+                    time.sleep(step_keithley)
+                    result_keithley = keithley.measure()
+
+                current_time = time.time()
+                measure_dict[_headers[0]] = current_time
+                measure_dict[_headers[1]] = result_keithley['date'] + ' ' + result_keithley['time']
+                measure_dict[_headers[2]] = set_voltage
+                measure_dict[_headers[3]] = result[0]
+                measure_dict[_headers[4]] = result[1]
+                measure_dict[_headers[5]] = result_keithley['temp']
+
+                writer.writerow(measure_dict)
+                print(current_time)
+
+        result = connection.do_cmd(['hvoff', bar_id])
+        if result[0] == 'ERR':
+            print("Error when hvoff")
+        connection.close_connection()
+
+    except Exception as exc:
+        result = connection.do_cmd(['hvoff', bar_id])
+        if result[0] == 'ERR':
+            print("Error when hvoff")
+        connection.close_connection()
+        print(exc)
+
 
 def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, step_time: float,
                 step_keithley_time: float, file_name: str, sipm_type: SipmType):
@@ -161,6 +225,8 @@ def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, s
             while voltage_bit < stop:
                 set_bit_voltage(voltage_bit, connection)
 
+                print(voltage_bit)
+
                 measure_dict = {}
                 time.sleep(step_time)
 
@@ -171,17 +237,19 @@ def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, s
                     time.sleep(step_keithley_time)
                     result_keithley = keithley.measure()
 
-                measure_dict[_headers_master[0]] = voltage_bit
+
                 if sipm_type == SipmType.MASTER:
+                    measure_dict[_headers_master[0]] = voltage_bit
                     measure_dict[_headers_master[1]] = measure_AFE_voltage_master(connection)
                 else:
+                    measure_dict[_headers_slave[0]] = voltage_bit
                     measure_dict[_headers_slave[1]] = measure_AFE_voltage_slave(connection)
                 measure_dict[_headers_master[2]] = result_keithley['voltage']
 
                 voltage_bit += step_voltage
 
                 writer.writerow(measure_dict)
-                print(voltage_bit)
+
 
             result = connection.do_cmd(['hvoff', bar_id])
             if result[0] == 'ERR':
@@ -195,7 +263,7 @@ def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, s
             connection.close_connection()
             print(exc)
 
-
+1
 if __name__ == '__main__':
     # stability(1651239000, 2, 0.1, 59.5, 5, 'stability_keithley6.csv')
     # stability(1651239300, 2, 0.1, 59.5, 10, 'stability_keithley7.csv')
@@ -203,4 +271,21 @@ if __name__ == '__main__':
     # stability(1651557600, 20, 0.1, 55.5, 30, 'stability_keithley9.csv')
     # calibration(60, 0, 4095, 64, 1, 0.01, 'calibration_keithley.csv', SipmType.MASTER)
     # calibration(300, 0, 4095, 16, 5, 0.1, 'calibration_keithley3.csv', SipmType.MASTER)
-    calibration(600, 0, 4095, 16, 10, 0.1, 'calibration_keithley4.csv', SipmType.MASTER)
+    # calibration(600, 0, 4095, 16, 10, 0.1, 'calibration_keithley4.csv', SipmType.MASTER)
+    # calibration(600, 0, 4095, 1, 10, 0.2, 'calibration_keithley5.csv', SipmType.MASTER)
+    # calibration(30, 0, 4095, 64, 12, 0.01, 'calibration_keithley6.csv', SipmType.MASTER)
+    # calibration(30, 0, 4095, 64, 12, 0.01, 'calibration_keithley7.csv', SipmType.MASTER)
+    # calibration(300, 0, 4095, 1, 12, 0.01, 'calibration_keithley8_slave_no_resistor.csv', SipmType.SLAVE)
+    # calibration(300, 0, 4095, 1, 12, 0.01, 'calibration_keithley9_slave_with_resistor.csv', SipmType.SLAVE)
+    # stability(1653285600, 20, 0.1, 55.5, 30, 'stability_keithley_slave_with_load.csv')
+    # stability_temp(1653484500, 20, 0.1, 55.5, 30, 'test_temp_stability.csv')
+    # stability_temp(1653544800, 10, 0.1, 55.5, 0, 'stability_temp25052022.csv')
+    # stability_temp(1653631200, 10, 0.1, 60.0, 0, 'stability_temp26052022.csv')
+    # calibration(1500, 0, 4095, 64, 12, 0.01, 'calibration_keithley.csv', SipmType.SLAVE)
+    # calibration(60, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022b.csv', SipmType.SLAVE)
+    # calibration(60, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022b_with_resistor.csv', SipmType.SLAVE)
+    # calibration(60, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022b_without_resistor.csv', SipmType.SLAVE)
+    # calibration(60, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022c_master_without_resistor.csv', SipmType.MASTER)
+    # calibration(60, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022c_master_with_resistor.csv', SipmType.MASTER)
+    # calibration(600, 0, 4095, 64, 12, 0.01, 'calibration_keithley27052022d_slave_with_resistor.csv', SipmType.SLAVE)
+    stability_temp(1653890400, 20, 0.1, 60.0, 0, 'stability_temp27052022.csv')
