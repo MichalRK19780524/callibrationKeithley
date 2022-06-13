@@ -20,13 +20,20 @@ ip = '10.2.0.126'
 port = 5555
 bar_id = 12
 
+a_master_set = -260.002
+b_master_set = 16535.2
+
+a_master_measured = 0.0184174
+b_master_measured = -1.6745
+
+resistance = 10.48 * 10**6
 
 def print_hi(name):
     # Use a breakpoint in the code line below to debug your script.
     print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
 
 
-def set_bit_voltage(voltage_bit: int, connection: lanconnection.LanConnection) \
+def set_bit_voltage(voltage_bit: float, connection: lanconnection.LanConnection) \
         -> (float, int, int, float, int, int):
     result = connection.do_cmd(['setrawdac', bar_id, voltage_bit, voltage_bit])
     return result[0]
@@ -58,11 +65,11 @@ def measure_AFE_voltage_slave(connection: lanconnection.LanConnection):
 
 
 def measure_AFE_all(connection: lanconnection.LanConnection) -> (int, int, int, int, int, int):
-    # measured_master_voltage = connection.do_cmd(['adc', bar_id, 3])[1]
-    # measured_slave_voltage = connection.do_cmd(['adc', bar_id, 4])[1]
-    # measured_master_current = connection.do_cmd(['adc', bar_id, 5])[1]
+    measured_master_voltage = connection.do_cmd(['adc', bar_id, 3])[1]
+    measured_slave_voltage = connection.do_cmd(['adc', bar_id, 4])[1]
+    measured_master_current = connection.do_cmd(['adc', bar_id, 5])[1]
     measured_slave_current = connection.do_cmd(['adc', bar_id, 6])[1]
-    return 'NULL', 'NULL', 'NULL', measured_slave_current
+    return measured_master_voltage, measured_slave_voltage, measured_master_current, measured_slave_current
 
 def measure_AFE_temp(connection: lanconnection.LanConnection) -> (int, int):
     return connection.do_cmd(['gettemp', bar_id])[1]
@@ -96,32 +103,27 @@ def stability(end_date: float, step: float, step_keithley: float, set_voltage: f
             voltage_result = connection.do_cmd(['setdac', bar_id, set_voltage, set_voltage])
             time.sleep(waiting_time)
             print(voltage_result)
-            # keithley = keithley_util.Keithley6517()
+            keithley = keithley_util.Keithley6517()
             while current_time < end_date:
                 measure_dict = {}
                 time.sleep(step)
                 result = measure_AFE_all(connection)
-                # result_keithley = keithley.measure()
-                # r_num = result_keithley['rNum']
-                # while result_keithley['rNum'] == r_num:
-                #     r_num = result_keithley['rNum']
-                #     time.sleep(step_keithley)
-                    # result_keithley = keithley.measure()
+                result_keithley = keithley.measure()
+                r_num = result_keithley['rNum']
+                while result_keithley['rNum'] == r_num:
+                    r_num = result_keithley['rNum']
+                    time.sleep(step_keithley)
+                    result_keithley = keithley.measure()
 
                 current_time = time.time()
                 measure_dict[_headers[0]] = current_time
-                # measure_dict[_headers[1]] = result_keithley['date'] + ' ' + result_keithley['time']
-                measure_dict[_headers[1]] = 'NULL'
+                measure_dict[_headers[1]] = result_keithley['date'] + ' ' + result_keithley['time']
                 measure_dict[_headers[2]] = set_voltage
                 measure_dict[_headers[3]] = voltage_result[1][0]
-                # measure_dict[_headers[4]] = result_keithley['voltage']
-                measure_dict[_headers[4]] = 'NULL'
-                # measure_dict[_headers[5]] = result[0]
-                measure_dict[_headers[5]] = 'NULL'
-                # measure_dict[_headers[6]] = result[1]
-                measure_dict[_headers[6]] = 'NULL'
-                # measure_dict[_headers[7]] = result[2]
-                measure_dict[_headers[7]] = 'NULL'
+                measure_dict[_headers[4]] = result_keithley['voltage']
+                measure_dict[_headers[5]] = result[0]
+                measure_dict[_headers[6]] = result[1]
+                measure_dict[_headers[7]] = result[2]
                 measure_dict[_headers[8]] = result[3]
                 writer.writerow(measure_dict)
                 print(current_time)
@@ -265,8 +267,67 @@ def stability_temp2(end_date: float, step: float, step_keithley: float, set_volt
         connection.close_connection()
         print(exc)
 
-# def current_calibration_SI(a_int: float, b_int: float, a_ext: float, b_ext: float, start_voltage: float,
-                           # stop_voltage: float, step: float, avg_time: float, step_time: float):
+
+def measure_avg_current(avg_number: int, sipm_type: SipmType, connection: lanconnection.LanConnection) -> float:
+    number = 0
+    sum = 0
+    while number < avg_number:
+        if sipm_type == SipmType.MASTER:
+            measured_current = connection.do_cmd(['adc', bar_id, 5])[1]
+        else:
+            measured_current = connection.do_cmd(['adc', bar_id, 6])[1]
+        sum += measured_current
+        number += 1
+    return sum/number
+
+
+def current_calibration_SI_master(waiting_time: float, start_voltage: float,
+                                  stop_voltage: float, step: float, avg_number: int, step_time: float, file_name: str):
+    with open(file_name, mode='w', newline='') as csv_file:
+        try:
+            connection = lanconnection.LanConnection(ip, port)
+
+            result = connection.do_cmd(['init', bar_id])
+            if result[0] == 'ERR':
+                print("Error when init")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+
+            result = connection.do_cmd(['hvon', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvon")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+            voltage = start_voltage
+            voltage_bit = int(a_master_set * start_voltage + b_master_set)
+            _headers_master = ('master set U[V]', 'master measured U[V]', 'calculated master set amperage', 'calculated master measured amperage', 'master current measured I[bit]')
+            # _headers_slave = ('slave set U[V]', 'master measured U[V]', 'calculated master set amperage', 'calculated master measured amperage', 'master current measured I[bit]')
+            writer = csv.DictWriter(csv_file, fieldnames=_headers_master)
+            writer.writeheader()
+            time.sleep(waiting_time)
+
+            while voltage < stop_voltage:
+                print(voltage)
+                set_bit_voltage(voltage_bit, connection)
+                time.sleep(step_time)
+                measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
+
+                measure_dict = {_headers_master[0]: voltage,
+                                _headers_master[1]: measured_voltage,
+                                _headers_master[2]: voltage / resistance,
+                                _headers_master[3]: measured_voltage / resistance,
+                                _headers_master[4]: measure_avg_current(avg_number, SipmType.MASTER)}
+
+                writer.writerow(measure_dict)
+                voltage += step
+                voltage_bit = int(a_master_set * voltage + b_master_set)
+
+
+
+        except Exception as exc:
+            result = connection.do_cmd(['hvoff', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvoff")
+            connection.close_connection()
+            print(exc)
 
 
 def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, step_time: float,
@@ -336,7 +397,7 @@ def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, s
             connection.close_connection()
             print(exc)
 
-1
+
 if __name__ == '__main__':
     # stability(1651239000, 2, 0.1, 59.5, 5, 'stability_keithley6.csv')
     # stability(1651239300, 2, 0.1, 59.5, 10, 'stability_keithley7.csv')
@@ -364,4 +425,5 @@ if __name__ == '__main__':
     # stability_temp(1653890400, 20, 0.1, 60.0, 0, 'stability_temp27052022.csv')
     # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley31052022_slave_without_resistor.csv', SipmType.SLAVE)
     # stability_temp2(1654581600, 20, 0.1, 48.0, 0, 'stability_temp2_06062022.csv')
-    stability(1654758000, 0, 0.1, 59.5, 1800, 'stability_current08062022b.csv')
+    # stability(1654758000, 0, 0.1, 59.5, 1800, 'stability_current08062022b.csv')
+    current_calibration_SI_master(1800, 48.3, 62.8, 0.1, 100, 12, 'current_calibration_14062022a.csv')
