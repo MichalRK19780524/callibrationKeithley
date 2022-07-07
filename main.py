@@ -20,11 +20,35 @@ ip = '10.2.0.126'
 port = 5555
 bar_id = 12
 
-a_master_set = -260.002
-b_master_set = 16535.2
+a_master_set_AFE_12 = -260.002
+b_master_set_AFE_12 = 16535.2
 
-a_master_measured = 0.0184174
-b_master_measured = -1.6745
+a_master_measured_AFE_12 = 0.0184174
+b_master_measured_AFE_12 = -1.6745
+
+a_slave_set_AFE_12 = -260.2817
+b_slave_set_AFE_12 = 16626.31
+
+# a_slave_measured_AFE_12 = -1.591    #Tu chyba zamieniono współczynniki a z b
+# b_slave_measured_AFE_12 = 0.0184290 #Tu chyba zamieniono współczynniki a z b
+
+a_master_set_AFE_14 = -259.1475
+b_master_set_AFE_14 = 16536.67
+
+a_master_measured_AFE_14 = 0.0183954
+b_master_measured_AFE_14 = -1.691
+
+a_master_set_AFE_11 = -259.1845
+b_master_set_AFE_11 = 16498.42
+
+a_master_measured_AFE_11 = 0.018360
+b_master_measured_AFE_11 = -1.664
+
+a_master_set_AFE_10 = -258.1665
+b_master_set_AFE_10 = 16509.26
+
+a_master_measured_AFE_10 = 0.0185317
+b_master_measured_AFE_10 = -1.644
 
 resistance = 10.48 * 10**6
 
@@ -281,7 +305,7 @@ def measure_avg_current(avg_number: int, sipm_type: SipmType, connection: lancon
     return sum/number
 
 
-def current_calibration_SI_master(waiting_time: float, start_voltage: float,
+def current_calibration_SiPM_master(a_master_set: float, b_master_set: float, a_master_measured: float, b_master_measured: float, waiting_time: float, start_voltage: float,
                                   stop_voltage: float, step: float, avg_number: int, step_time: float, file_name: str):
     with open(file_name, mode='w', newline='') as csv_file:
         try:
@@ -314,13 +338,11 @@ def current_calibration_SI_master(waiting_time: float, start_voltage: float,
                                 _headers_master[1]: measured_voltage,
                                 _headers_master[2]: voltage / resistance,
                                 _headers_master[3]: measured_voltage / resistance,
-                                _headers_master[4]: measure_avg_current(avg_number, SipmType.MASTER)}
+                                _headers_master[4]: measure_avg_current(avg_number, SipmType.MASTER, connection)}
 
                 writer.writerow(measure_dict)
                 voltage += step
                 voltage_bit = int(a_master_set * voltage + b_master_set)
-
-
 
         except Exception as exc:
             result = connection.do_cmd(['hvoff', bar_id])
@@ -329,6 +351,52 @@ def current_calibration_SI_master(waiting_time: float, start_voltage: float,
             connection.close_connection()
             print(exc)
 
+
+def current_calibration_SiPM_slave(a_slave_set: float, b_slave_set: float, a_slave_measured: float, b_slave_measured: float, waiting_time: float, start_voltage: float,
+                                    stop_voltage: float, step: float, avg_number: int, step_time: float, file_name: str):
+    with open(file_name, mode='w', newline='') as csv_file:
+        try:
+            connection = lanconnection.LanConnection(ip, port)
+
+            result = connection.do_cmd(['init', bar_id])
+            if result[0] == 'ERR':
+                print("Error when init")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+
+            result = connection.do_cmd(['hvon', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvon")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+            voltage = start_voltage
+            voltage_bit = int(a_slave_set * start_voltage + b_slave_set)
+
+            _headers_slave = ('slave set U[V]', 'slave measured U[V]', 'calculated slave set amperage', 'calculated slave measured amperage', 'slave current measured I[bit]')
+            writer = csv.DictWriter(csv_file, fieldnames=_headers_slave)
+            writer.writeheader()
+            time.sleep(waiting_time)
+
+            while voltage < stop_voltage:
+                print(voltage)
+                set_bit_voltage(voltage_bit, connection)
+                time.sleep(step_time)
+                measured_voltage = a_slave_measured * measure_AFE_voltage_slave(connection) + b_slave_measured
+
+                measure_dict = {_headers_slave[0]: voltage,
+                                _headers_slave[1]: measured_voltage,
+                                _headers_slave[2]: voltage / resistance,
+                                _headers_slave[3]: measured_voltage / resistance,
+                                _headers_slave[4]: measure_avg_current(avg_number, SipmType.SLAVE, connection)}
+
+                writer.writerow(measure_dict)
+                voltage += step
+                voltage_bit = int(a_slave_set * voltage + b_slave_set)
+
+        except Exception as exc:
+            result = connection.do_cmd(['hvoff', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvoff")
+            connection.close_connection()
+            print(exc)
 
 def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, step_time: float,
                 step_keithley_time: float, file_name: str, sipm_type: SipmType):
@@ -426,4 +494,63 @@ if __name__ == '__main__':
     # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley31052022_slave_without_resistor.csv', SipmType.SLAVE)
     # stability_temp2(1654581600, 20, 0.1, 48.0, 0, 'stability_temp2_06062022.csv')
     # stability(1654758000, 0, 0.1, 59.5, 1800, 'stability_current08062022b.csv')
-    current_calibration_SI_master(1800, 48.3, 62.8, 0.1, 100, 12, 'current_calibration_14062022a.csv')
+    # current_calibration_SiPM_master(a_master_set_AFE_12, b_master_set_AFE_12, a_master_measured_AFE_12, b_master_measured_AFE_12, 1800, 48.3, 62.8, 0.05, 100, 12, 'current_calibration_14062022.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley15062022a_master_without_resistor_AFE_11.csv',SipmType.MASTER) bez wlaczonego filtra uśredniajacego
+    # calibration(120, 0, 4095, 64, 12, 0.01, 'calibration_keithley15062022a_slave_without_resistor_AFE_11.csv', SipmType.SLAVE)
+    # calibration(120, 0, 4095, 64, 12, 0.01, 'calibration_keithley15062022a_master_without_resistor_AFE_11_filter3.csv',SipmType.MASTER)
+    # calibration(60, 0, 4095, 128, 8, 0.01, 'calibration_keithley15062022a_master_without_resistor_AFE_11_reapet.csv', SipmType.MASTER)
+    # calibration(60, 0, 4095, 128, 8, 0.01, 'calibration_keithley15062022a_slave_without_resistor_AFE_11_reapet.csv', SipmType.SLAVE)
+    # stability_temp(1655622000, 20, 0.1, 60.0, 0, 'stability_temp15062022b_AFE15.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley21062022a_master_with_resistor_AFE_11_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley21062022b_slave_with_resistor_AFE_11_filter3.csv', SipmType.SLAVE)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley21062022c_master_without_resistor_AFE_10_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley21062022d_slave_without_resistor_AFE_10_filter3.csv', SipmType.SLAVE)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley21062022e_slave_with_resistor_AFE_10_filter3.csv', SipmType.SLAVE)
+    # stability_temp(1655888400, 5, 0.1, 60.0, 0, 'stability_temp22062022a_AFE15_2h.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley22062022b_master_with_resistor_AFE_10_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley22062022c_master_without_resistor_AFE_14_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley22062022d_slave_without_resistor_AFE_14_filter3.csv', SipmType.SLAVE)
+    # current_calibration_SiPM_slave(a_slave_set_AFE_12, b_slave_set_AFE_12, a_slave_measured_AFE_12,
+    #                                 b_slave_measured_AFE_12, 1800, 48.3, 62.8, 0.05, 100, 12,
+    #                                 'current_calibration_slave_AFE_12_22062022e.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley23062022a_master_with_resistor_AFE_14_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley23062022b_slave_with_resistor_AFE_14_without_filter3.csv', SipmType.SLAVE)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley23062022b_slave_with_resistor_AFE_14_filter.csv', SipmType.SLAVE)
+    # current_calibration_SiPM_slave(a_master_set_AFE_14, b_master_set_AFE_14, a_master_measured_AFE_14,
+    #                                 b_master_measured_AFE_14, 1800, 48.3, 62.8, 0.05, 100, 12,
+    #                                 'current_calibration_master_AFE_14_23062022c.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley24062022a_master_without_resistor_AFE_15_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley24062022b_master_with_resistor_AFE_15_filter3.csv', SipmType.MASTER)
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley24062022c_slave_without_resistor_AFE_15_filter3.csv', SipmType.SLAVE)
+    # stability_temp(1656311400, 20, 0.1, 60.0, 0, 'stability_temp24062022d_AFE14.csv')
+    # calibration(1800, 0, 4095, 64, 12, 0.01, 'calibration_keithley28062022a_slave_with_resistor_AFE_15_filter3.csv', SipmType.SLAVE)
+
+    # current_calibration_SiPM_master(a_master_set_AFE_14, b_master_set_AFE_14, a_master_measured_AFE_14,
+    #                                 b_master_measured_AFE_14, 1800, 48.3, 62.8, 0.05, 100, 12,
+    #                                 'current_calibration_master_AFE_14_28062022b.csv')
+    # Cos jest nie tak z AFE 14 - ustawiam napięcie i mierzę go na Keithleyu, a nie mierzę żadnego prądu na wewnętrznym amperomierzu
+
+    # stability_temp(1656504000, 5, 0.1, 60.0, 0, 'stability_temp29062022a_AFE14_2h.csv')
+
+    # current_calibration_SiPM_master(a_master_set_AFE_11, b_master_set_AFE_11, a_master_measured_AFE_11,
+    #                                 b_master_measured_AFE_11, 1800, 48.3, 62.8, 0.5, 100, 12,
+    #                                 'current_calibration_master_AFE_11_01072022a.csv')
+
+    # Cos jest nie tak także z AFE 11 - ustawiam napięcie i mierzę go na Keithleyu, a nie mierzę żadnego prądu na wewnętrznym amperomierzu
+
+    # stability_temp(1656921600, 20, 0.1, 60.0, 0, 'stability_temp01072022b_AFE11.csv')
+
+    # stability_temp(1657013400, 20, 0.1, 60.0, 0, 'stability_temp05072022a_AFE11.csv')
+
+    # stability_temp(1657022400, 10, 0.1, 60.0, 0, 'stability_temp05072022b_AFE14.csv')
+    # stability_temp(1657024800, 10, 0.1, 60.0, 0, 'stability_temp05072022c_AFE14.csv')
+    # stability_temp(1657035600, 10, 0.1, 60.0, 0, 'stability_temp05072022d_AFE15.csv')
+    # stability_temp(1657107000, 10, 0.1, 60.0, 0, 'stability_temp06072022a_AFE10.csv')
+
+    # current_calibration_SiPM_master(a_master_set_AFE_10, b_master_set_AFE_10, a_master_measured_AFE_10,
+    #                                 b_master_measured_AFE_10, 1800, 48.3, 62.8, 0.2, 10, 12,
+    #                                 'breakdown_voltage_master_AFE_10_06072022b.csv')
+
+    current_calibration_SiPM_master(a_master_set_AFE_12, b_master_set_AFE_12, a_master_measured_AFE_12,
+                                    b_master_measured_AFE_12, 1800, 48.3, 62.8, 0.2, 10, 12,
+                                    'breakdown_voltage_master_AFE_12_ext_SIMP_07072022a.csv')
