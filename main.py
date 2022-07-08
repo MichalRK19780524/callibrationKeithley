@@ -527,6 +527,7 @@ def breakdown_voltage_determination_master(a_master_set: float, b_master_set: fl
 
             measure_dict = {_headers_master[0]: stop_voltage,
                             _headers_master[1]: measured_voltage,
+                            _headers_master[2]: measured_current,
                             _headers_master[3]: stddev_measured_current,
                             _headers_master[4]: result_keithley['temp']}
             writer.writerow(measure_dict)
