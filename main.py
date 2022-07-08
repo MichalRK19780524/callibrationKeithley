@@ -5,6 +5,7 @@ import os
 # from typing import Dict, List
 import csv
 import lanconnection
+import statistics
 from enum import Enum, auto
 
 
@@ -305,6 +306,18 @@ def measure_avg_current(avg_number: int, sipm_type: SipmType, connection: lancon
     return sum/number
 
 
+def measure_avg_current2(avg_number: int, sipm_type: SipmType, connection: lanconnection.LanConnection) -> (float, float):
+    number = 0
+    measured_current_list = []
+    while number < avg_number:
+        if sipm_type == SipmType.MASTER:
+            measured_current = connection.do_cmd(['adc', bar_id, 5])[1]
+        else:
+            measured_current = connection.do_cmd(['adc', bar_id, 6])[1]
+        measured_current_list.append(measured_current)
+    return statistics.mean(measured_current_list), statistics.stdev(measured_current_list)
+
+
 def current_calibration_SiPM_master(a_master_set: float, b_master_set: float, a_master_measured: float, b_master_measured: float, waiting_time: float, start_voltage: float,
                                   stop_voltage: float, step: float, avg_number: int, step_time: float, file_name: str):
     with open(file_name, mode='w', newline='') as csv_file:
@@ -464,6 +477,93 @@ def calibration(waiting_time: float, start: int, stop: int, step_voltage: int, s
                 print("Error when hvoff")
             connection.close_connection()
             print(exc)
+
+
+def breakdown_voltage_determination_master(a_master_set: float, b_master_set: float, a_master_measured: float, b_master_measured: float, waiting_time: float, start_voltage: float,
+                                    stop_voltage: float, current_limit: float, voltage_difference: float, avg_number: int, step_time: float, file_name: str):
+    with open(file_name, mode='w', newline='') as csv_file:
+        try:
+            connection = lanconnection.LanConnection(ip, port)
+
+            result = connection.do_cmd(['init', bar_id])
+            if result[0] == 'ERR':
+                print("Error when init")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+            print("Init OK")
+
+            result = connection.do_cmd(['hvon', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvon")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+            print("Hvon OK")
+
+            _headers_master = ('master set U[V]', 'master measured U[V]', 'master measured current I[bit]', 'master stdev measured current  I[bit]')
+
+            writer = csv.DictWriter(csv_file, fieldnames=_headers_master)
+            writer.writeheader()
+            time.sleep(waiting_time)
+            voltage_bit = int(a_master_set * start_voltage + b_master_set)
+            set_bit_voltage(voltage_bit, connection)
+            measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
+            measured_current, stddev_measured_current = measure_avg_current2(avg_number, SipmType.MASTER, connection)
+
+            measure_dict = {_headers_master[0]: start_voltage,
+                            _headers_master[1]: measured_voltage,
+                            _headers_master[2]: measured_current,
+                            _headers_master[3]: stddev_measured_current}
+            writer.writerow(measure_dict)
+
+            voltage_bit = int(a_master_set * stop_voltage + b_master_set)
+            set_bit_voltage(voltage_bit, connection)
+            measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
+            measured_current = measure_avg_current(avg_number, SipmType.MASTER, connection)
+            measure_dict = {_headers_master[0]: stop_voltage,
+                            _headers_master[1]: measured_voltage,
+                            _headers_master[2]: measured_current,
+                            _headers_master[3]: stddev_measured_current}
+            writer.writerow(measure_dict)
+
+            if measured_current < current_limit:
+                print("Error - measured current at the maximum voltage below the limit")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+
+            delta = stop_voltage - start_voltage
+            v_s = start_voltage
+            v_e = stop_voltage
+            v_m = v_e / 2
+
+            while abs(delta) > voltage_difference:
+                print(v_m)
+                voltage_bit = int(a_master_set * v_m + b_master_set)
+                set_bit_voltage(voltage_bit, connection)
+
+                time.sleep(step_time)
+
+                measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
+                measured_current = measure_avg_current(avg_number, SipmType.MASTER, connection)
+
+                v_m = v_e / 2
+                if measured_current > current_limit:
+                    v_e = v_m
+                else:
+                    v_s = v_m
+                delta = v_e - v_s
+
+                measure_dict = {_headers_master[0]: v_m,
+                                _headers_master[1]: measured_voltage,
+                                _headers_master[2]: measured_current,
+                                _headers_master[3]: stddev_measured_current}
+
+                writer.writerow(measure_dict)
+
+        except Exception as exc:
+            result = connection.do_cmd(['hvoff', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvoff")
+            connection.close_connection()
+            print(exc)
+
+
 
 
 if __name__ == '__main__':
