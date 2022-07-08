@@ -497,7 +497,9 @@ def breakdown_voltage_determination_master(a_master_set: float, b_master_set: fl
                 raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
             print("Hvon OK")
 
-            _headers_master = ('master set U[V]', 'master measured U[V]', 'master measured current I[bit]', 'master stdev measured current  I[bit]')
+            _headers_master = ('master set U[V]', 'master measured U[V]', 'master measured current I[bit]', 'master stdev measured current  I[bit]', 'Temperature keithley [centigrade]')
+
+            keithley = keithley_util.Keithley6517()
 
             writer = csv.DictWriter(csv_file, fieldnames=_headers_master)
             writer.writeheader()
@@ -507,20 +509,26 @@ def breakdown_voltage_determination_master(a_master_set: float, b_master_set: fl
             measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
             measured_current, stddev_measured_current = measure_avg_current2(avg_number, SipmType.MASTER, connection)
 
+            result_keithley = keithley.measure()
+
             measure_dict = {_headers_master[0]: start_voltage,
                             _headers_master[1]: measured_voltage,
                             _headers_master[2]: measured_current,
-                            _headers_master[3]: stddev_measured_current}
+                            _headers_master[3]: stddev_measured_current,
+                            _headers_master[4]: result_keithley['temp']}
             writer.writerow(measure_dict)
 
             voltage_bit = int(a_master_set * stop_voltage + b_master_set)
             set_bit_voltage(voltage_bit, connection)
             measured_voltage = a_master_measured * measure_AFE_voltage_master(connection) + b_master_measured
             measured_current = measure_avg_current(avg_number, SipmType.MASTER, connection)
+
+            result_keithley = keithley.measure()
+
             measure_dict = {_headers_master[0]: stop_voltage,
                             _headers_master[1]: measured_voltage,
-                            _headers_master[2]: measured_current,
-                            _headers_master[3]: stddev_measured_current}
+                            _headers_master[3]: stddev_measured_current,
+                            _headers_master[4]: result_keithley['temp']}
             writer.writerow(measure_dict)
 
             if measured_current < current_limit:
@@ -549,10 +557,13 @@ def breakdown_voltage_determination_master(a_master_set: float, b_master_set: fl
                     v_s = v_m
                 delta = v_e - v_s
 
+                result_keithley = keithley.measure()
+
                 measure_dict = {_headers_master[0]: v_m,
                                 _headers_master[1]: measured_voltage,
                                 _headers_master[2]: measured_current,
-                                _headers_master[3]: stddev_measured_current}
+                                _headers_master[3]: stddev_measured_current,
+                                _headers_master[4]: result_keithley['temp']}
 
                 writer.writerow(measure_dict)
 
