@@ -6,7 +6,11 @@ class Keithley6517:
     def __init__(self):
         rm = pyvisa.ResourceManager()
         resources = rm.list_resources()
-        self.keithley = rm.open_resource(resources[0])
+        # self.keithley = rm.open_resource(resources[0])
+
+        self.keithley = rm.open_resource("TCPIP0::10.2.0.71::23::SOCKET")
+        self.keithley.read_termination = "\r\n"
+
         print(self.keithley.query('*IDN?'))
 
         self.keithley.write('FORM:ELEM READ, RNUM, TST, ETEM')
