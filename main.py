@@ -4191,6 +4191,7 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         db_measured = results_measured.bse["Intercept"]
         df_set = df.loc[from_set_cal_row:to_set_cal_row, ['master set U[bit]', 'keithley measured U[V]']]
         results_set = smf.ols(formula="Q('master set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
+        print(results_set.summary())
 
         x_measured = df['master measured U[bit]']
         y_measured = df['keithley measured U[V]']
@@ -5506,8 +5507,11 @@ if __name__ == '__main__':
     #                                  40, 52.0, 5, 5, 0.01,
     #                                  "current_measurement_slave_AFE12_to_histogram_test_off3")
     # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE, 'calibration3_keithley07022024a_master_without_resistor_AFE_22_without_filter_90m.csv', 3, 62, 0, 63)
-    generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
-                                                     'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
+    # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
+    #                                                  'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
+    #                                                  3, 62, 0, 63)
+    generate_voltage_calibration_parameters_and_plot(SipmType.MASTER,
+                                                     'calibration3_keithley02022024a_master_without_resistor_AFE_22_without_filter_90m.csv',
                                                      3, 62, 0, 63)
 
 
