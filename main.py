@@ -2,14 +2,24 @@ import time
 import os
 # from typing import Dict, List
 import csv
+from operator import index
+
+import pandas as pd
 import keyboard
 
 from typing import Dict
 
 import lanconnection
 import statistics
+import statsmodels.api as sm
+# from patsy import dmatrices
+import statsmodels.formula.api as smf
+
+import matplotlib.pyplot as plt
+
 import keithley_util
 from enum import Enum, auto
+
 
 
 # Press Shift+F10 to execute it or replace it with your code.
@@ -4161,6 +4171,110 @@ def current_measurement_to_histogram(sipm_type: SipmType, a_set, b_set, a_measur
             print("Delta time:", f"{delta_time:.1f}")
             connection.close_connection()
 
+def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_to_file: str, from_set_cal_row: int, to_set_cal_row: int, from_measured_cal_row: int, to_measured_cal_row: int):
+    df = pd.read_csv(path_to_file)
+    # print(df)
+    # x = df.loc[from_set_cal_row:to_set_cal_row, 'keithley measured U[V]']
+    # print(x)
+    # y = None
+    fig_measured, ax_measured = plt.subplots()
+    fig_set, ax_set = plt.subplots()
+    if sipm_type == SipmType.MASTER:
+        df_measured = df.loc[from_measured_cal_row:to_measured_cal_row, ['keithley measured U[V]', 'master measured U[bit]']]
+        print(df_measured)
+
+        results_measured = smf.ols(formula="Q('keithley measured U[V]') ~ Q('master measured U[bit]')", data=df_measured).fit()
+        print(results_measured.summary())
+        a_measured = results_measured.params["Q('master measured U[bit]')"]
+        da_measured = results_measured.bse["Q('master measured U[bit]')"]
+        b_measured = results_measured.params["Intercept"]
+        db_measured = results_measured.bse["Intercept"]
+        df_set = df.loc[from_set_cal_row:to_set_cal_row, ['master set U[bit]', 'keithley measured U[V]']]
+        results_set = smf.ols(formula="Q('master set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
+
+        x_measured = df['master measured U[bit]']
+        y_measured = df['keithley measured U[V]']
+
+        x_set = df['keithley measured U[V]']
+        y_set = df['master set U[bit]']
+
+    else:
+        df_measured = df.loc[from_measured_cal_row:to_measured_cal_row, ['keithley measured U[V]', 'slave measured U[bit]']]
+        print(df_measured)
+        results_measured = smf.ols(formula="Q('keithley measured U[V]') ~ Q('slave measured U[bit]')", data=df_measured).fit()
+        print(results_measured.summary())
+        a_measured = results_measured.params["Q('slave measured U[bit]')"]
+        da_measured = results_measured.bse["Q('slave measured U[bit]')"]
+        b_measured = results_measured.params["Intercept"]
+        db_measured = results_measured.bse["Intercept"]
+
+        df_set = df.loc[from_set_cal_row:to_set_cal_row, ['slave set U[bit]', 'keithley measured U[V]']]
+        results_set = smf.ols(formula="Q('slave set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
+        print(results_set.summary())
+
+        x_measured = df['slave measured U[bit]']
+        y_measured = df['keithley measured U[V]']
+
+        x_set = df['keithley measured U[V]']
+        y_set = df['slave set U[bit]']
+
+    root, extension = os.path.splitext(path_to_file)
+
+    ax_measured.plot(x_measured, y_measured, 'ro')
+
+    x0 = x_measured.iloc[0]
+    y0 = a_measured * x0 + b_measured
+
+    x1 = x_measured.iloc[-1]
+    y1 = a_measured * x1 + b_measured
+
+    ax_measured.plot([x0, x1], [y0, y1], '-m')
+
+    ax_measured.set_xlabel('ADC counts')
+    ax_measured.set_ylabel('Voltage [V]')
+    equation_measured_text = '$U =' + '{:.7f}'.format(a_measured) + '\pm' + '{da:.7f} {b:.4f}'.format(da = da_measured, b = b_measured) + \
+                    '\pm' + '{db:.4f}'.format(db = db_measured) + '$'
+    ax_measured.text(2700, 62, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='magenta', fontsize=10)
+    ax_measured.grid(True)
+    fig_measured.savefig(root + '_measured.png')
+
+    a_set = results_set.params["Q('keithley measured U[V]')"]
+    da_set = results_set.bse["Q('keithley measured U[V]')"]
+    b_set = results_set.params["Intercept"]
+    db_set = results_set.bse["Intercept"]
+
+    dict = {'a set': [a_set],
+            'std dev a set': [da_set],
+            'b set': [b_set],
+            'std dev b set': [db_set],
+            'a measured': [a_measured],
+            'std dev a measured': [da_measured],
+            'b measured': [b_measured],
+            'std dev b measured': [db_measured],
+            }
+    df_params = pd.DataFrame(dict)
+    df_params.to_csv(root + '_params' + extension, index = False)
+
+
+    ax_set.plot(x_set, y_set, 'bo')
+    x0 = x_set.iloc[0]
+    y0 = a_set * x0 + b_set
+    x1 = x_set.iloc[-1]
+    y1 = a_set * x1 + b_set
+    ax_set.plot([x0, x1], [y0, y1], '-g')
+    ax_set.set_xlabel('Voltage [V]')
+    ax_set.set_ylabel('DAC counts')
+    equation_measured_text = '$U_{AFE,set} =' + '{:.3f}'.format(a_set) + '\pm' + '{da:.3f} + {b:.2f}'.format(da = da_set, b = b_set) + \
+                    '\pm' + '{db:.2f}'.format(db = db_set) + '$'
+    ax_set.text(52, 4000, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='green', fontsize=10)
+    ax_set.grid(True)
+    # plt.scatter(df['keithley measured U[V]'], df['slave set U[bit]'], s=60, c='purple')
+    plt.show()
+    fig_set.savefig(root + '_set.png')
+
+
+
+
 
 def test_range():
     keithley = keithley_util.Keithley6517()
@@ -5386,11 +5500,15 @@ if __name__ == '__main__':
     # current_measurement_to_histogram(SipmType.SLAVE, a_slave_set_AFE_12_new_measurement3, b_slave_set_AFE_12_new_measurement3, a_slave_measured_AFE_12_new_measurement3, b_slave_measured_AFE_12_new_measurement3, 1800,
     #                                  40, 52.0, 10000, 5, 0.01, "current_measurement_slave_AFE12_to_histogram_2024_02_09d.csv")
 
-    current_measurement_to_histogram(SipmType.SLAVE, a_slave_set_AFE_12_new_measurement3,
-                                     b_slave_set_AFE_12_new_measurement3, a_slave_measured_AFE_12_new_measurement3,
-                                     b_slave_measured_AFE_12_new_measurement3, 30,
-                                     40, 52.0, 5, 5, 0.01,
-                                     "current_measurement_slave_AFE12_to_histogram_test_off3")
+    # current_measurement_to_histogram(SipmType.SLAVE, a_slave_set_AFE_12_new_measurement3,
+    #                                  b_slave_set_AFE_12_new_measurement3, a_slave_measured_AFE_12_new_measurement3,
+    #                                  b_slave_measured_AFE_12_new_measurement3, 30,
+    #                                  40, 52.0, 5, 5, 0.01,
+    #                                  "current_measurement_slave_AFE12_to_histogram_test_off3")
+    # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE, 'calibration3_keithley07022024a_master_without_resistor_AFE_22_without_filter_90m.csv', 3, 62, 0, 63)
+    generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
+                                                     'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
+                                                     3, 62, 0, 63)
 
 
 
