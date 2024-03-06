@@ -4173,10 +4173,6 @@ def current_measurement_to_histogram(sipm_type: SipmType, a_set, b_set, a_measur
 
 def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_to_file: str, from_set_cal_row: int, to_set_cal_row: int, from_measured_cal_row: int, to_measured_cal_row: int):
     df = pd.read_csv(path_to_file)
-    # print(df)
-    # x = df.loc[from_set_cal_row:to_set_cal_row, 'keithley measured U[V]']
-    # print(x)
-    # y = None
     fig_measured, ax_measured = plt.subplots()
     fig_set, ax_set = plt.subplots()
     if sipm_type == SipmType.MASTER:
@@ -4189,15 +4185,26 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         da_measured = results_measured.bse["Q('master measured U[bit]')"]
         b_measured = results_measured.params["Intercept"]
         db_measured = results_measured.bse["Intercept"]
+
         df_set = df.loc[from_set_cal_row:to_set_cal_row, ['master set U[bit]', 'keithley measured U[V]']]
+        print('df_set: /n', df_set)
         results_set = smf.ols(formula="Q('master set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
         print(results_set.summary())
 
-        x_measured = df['master measured U[bit]']
-        y_measured = df['keithley measured U[V]']
+        x_full_measured = df['master measured U[bit]']
+        y_full_measured = df['keithley measured U[V]']
+        x_selected_measured = x_full_measured[from_measured_cal_row : to_measured_cal_row + 1]
+        y_selected_measured = y_full_measured[from_measured_cal_row : to_measured_cal_row + 1]
 
-        x_set = df['keithley measured U[V]']
-        y_set = df['master set U[bit]']
+        print('x_selected_measured: \n', x_selected_measured)
+        print('y_selected_measured: \n', y_selected_measured)
+
+        x_full_set = df['keithley measured U[V]']
+        y_full_set = df['master set U[bit]']
+        x_selected_set = x_full_set[from_set_cal_row : to_set_cal_row + 1]
+        y_selected_set = y_full_set[from_set_cal_row : to_set_cal_row + 1]
+        print('x_selected_set: \n', x_selected_set)
+        print('y_selected_set: \n', y_selected_set)
 
     else:
         df_measured = df.loc[from_measured_cal_row:to_measured_cal_row, ['keithley measured U[V]', 'slave measured U[bit]']]
@@ -4210,32 +4217,43 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         db_measured = results_measured.bse["Intercept"]
 
         df_set = df.loc[from_set_cal_row:to_set_cal_row, ['slave set U[bit]', 'keithley measured U[V]']]
+        print('df_set: /n', df_set)
         results_set = smf.ols(formula="Q('slave set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
         print(results_set.summary())
 
-        x_measured = df['slave measured U[bit]']
-        y_measured = df['keithley measured U[V]']
+        x_full_measured = df['slave measured U[bit]']
+        y_full_measured = df['keithley measured U[V]']
+        x_selected_measured = x_full_measured[from_measured_cal_row: to_measured_cal_row + 1]
+        y_selected_measured = y_full_measured[from_measured_cal_row: to_measured_cal_row + 1]
 
-        x_set = df['keithley measured U[V]']
-        y_set = df['slave set U[bit]']
+        print('x_selected_measured: \n', x_selected_measured)
+        print('y_selected_measured: \n', y_selected_measured)
+
+        x_full_set = df['keithley measured U[V]']
+        y_full_set = df['slave set U[bit]']
+        x_selected_set = x_full_set[from_set_cal_row : to_set_cal_row + 1]
+        y_selected_set = y_full_set[from_set_cal_row : to_set_cal_row + 1]
+        print('x_selected_set: \n', x_selected_set)
+        print('y_selected_set: \n', y_selected_set)
 
     root, extension = os.path.splitext(path_to_file)
 
-    ax_measured.plot(x_measured, y_measured, 'ro')
+    ax_measured.plot(x_full_measured, y_full_measured, 'mo', markerfacecolor='none')
+    ax_measured.plot(x_selected_measured, y_selected_measured, 'mo')
 
-    x0 = x_measured.iloc[0]
+    x0 = x_full_measured.iloc[0]
     y0 = a_measured * x0 + b_measured
 
-    x1 = x_measured.iloc[-1]
+    x1 = x_full_measured.iloc[-1]
     y1 = a_measured * x1 + b_measured
 
-    ax_measured.plot([x0, x1], [y0, y1], '-m')
+    ax_measured.plot([x0, x1], [y0, y1], '-', color='darkred')
 
     ax_measured.set_xlabel('ADC counts')
     ax_measured.set_ylabel('Voltage [V]')
     equation_measured_text = '$U =' + '{:.7f}'.format(a_measured) + '\pm' + '{da:.7f} {b:.4f}'.format(da = da_measured, b = b_measured) + \
                     '\pm' + '{db:.4f}'.format(db = db_measured) + '$'
-    ax_measured.text(2700, 62, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='magenta', fontsize=10)
+    ax_measured.text(2700, 62, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkred', fontsize=10)
     ax_measured.grid(True)
     fig_measured.savefig(root + '_measured.png')
 
@@ -4256,18 +4274,19 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
     df_params = pd.DataFrame(dict)
     df_params.to_csv(root + '_params' + extension, index = False)
 
+    ax_set.plot(x_full_set, y_full_set, 'co', markerfacecolor='none')
+    ax_set.plot(x_selected_set, y_selected_set, 'co')
 
-    ax_set.plot(x_set, y_set, 'bo')
-    x0 = x_set.iloc[0]
+    x0 = x_full_set.iloc[0]
     y0 = a_set * x0 + b_set
-    x1 = x_set.iloc[-1]
+    x1 = x_full_set.iloc[-1]
     y1 = a_set * x1 + b_set
-    ax_set.plot([x0, x1], [y0, y1], '-g')
+    ax_set.plot([x0, x1], [y0, y1], '-', color='darkblue')
     ax_set.set_xlabel('Voltage [V]')
     ax_set.set_ylabel('DAC counts')
     equation_measured_text = '$U_{AFE,set} =' + '{:.3f}'.format(a_set) + '\pm' + '{da:.3f} + {b:.2f}'.format(da = da_set, b = b_set) + \
                     '\pm' + '{db:.2f}'.format(db = db_set) + '$'
-    ax_set.text(52, 4000, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='green', fontsize=10)
+    ax_set.text(52, 4000, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkblue', fontsize=10)
     ax_set.grid(True)
     # plt.scatter(df['keithley measured U[V]'], df['slave set U[bit]'], s=60, c='purple')
     plt.show()
@@ -5507,12 +5526,12 @@ if __name__ == '__main__':
     #                                  40, 52.0, 5, 5, 0.01,
     #                                  "current_measurement_slave_AFE12_to_histogram_test_off3")
     # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE, 'calibration3_keithley07022024a_master_without_resistor_AFE_22_without_filter_90m.csv', 3, 62, 0, 63)
-    # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
-    #                                                  'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
-    #                                                  3, 62, 0, 63)
-    generate_voltage_calibration_parameters_and_plot(SipmType.MASTER,
-                                                     'calibration3_keithley02022024a_master_without_resistor_AFE_22_without_filter_90m.csv',
+    generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
+                                                     'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
                                                      3, 62, 0, 63)
+    # generate_voltage_calibration_parameters_and_plot(SipmType.MASTER,
+    #                                                  'calibration3_keithley02022024a_master_without_resistor_AFE_22_without_filter_90m.csv',
+    #                                                  3, 62, 0, 63)
 
 
 
