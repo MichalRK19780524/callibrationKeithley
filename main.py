@@ -4177,7 +4177,7 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
     fig_set, ax_set = plt.subplots()
     if sipm_type == SipmType.MASTER:
         df_measured = df.loc[from_measured_cal_row:to_measured_cal_row, ['keithley measured U[V]', 'master measured U[bit]']]
-        print(df_measured)
+        # print(df_measured)
 
         results_measured = smf.ols(formula="Q('keithley measured U[V]') ~ Q('master measured U[bit]')", data=df_measured).fit()
         print(results_measured.summary())
@@ -4187,7 +4187,7 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         db_measured = results_measured.bse["Intercept"]
 
         df_set = df.loc[from_set_cal_row:to_set_cal_row, ['master set U[bit]', 'keithley measured U[V]']]
-        print('df_set: /n', df_set)
+        # print('df_set: /n', df_set)
         results_set = smf.ols(formula="Q('master set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
         print(results_set.summary())
 
@@ -4196,19 +4196,19 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         x_selected_measured = x_full_measured[from_measured_cal_row : to_measured_cal_row + 1]
         y_selected_measured = y_full_measured[from_measured_cal_row : to_measured_cal_row + 1]
 
-        print('x_selected_measured: \n', x_selected_measured)
-        print('y_selected_measured: \n', y_selected_measured)
+        # print('x_selected_measured: \n', x_selected_measured)
+        # print('y_selected_measured: \n', y_selected_measured)
 
         x_full_set = df['keithley measured U[V]']
         y_full_set = df['master set U[bit]']
         x_selected_set = x_full_set[from_set_cal_row : to_set_cal_row + 1]
         y_selected_set = y_full_set[from_set_cal_row : to_set_cal_row + 1]
-        print('x_selected_set: \n', x_selected_set)
-        print('y_selected_set: \n', y_selected_set)
+        # print('x_selected_set: \n', x_selected_set)
+        # print('y_selected_set: \n', y_selected_set)
 
     else:
         df_measured = df.loc[from_measured_cal_row:to_measured_cal_row, ['keithley measured U[V]', 'slave measured U[bit]']]
-        print(df_measured)
+        # print(df_measured)
         results_measured = smf.ols(formula="Q('keithley measured U[V]') ~ Q('slave measured U[bit]')", data=df_measured).fit()
         print(results_measured.summary())
         a_measured = results_measured.params["Q('slave measured U[bit]')"]
@@ -4217,7 +4217,7 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         db_measured = results_measured.bse["Intercept"]
 
         df_set = df.loc[from_set_cal_row:to_set_cal_row, ['slave set U[bit]', 'keithley measured U[V]']]
-        print('df_set: /n', df_set)
+        # print('df_set: /n', df_set)
         results_set = smf.ols(formula="Q('slave set U[bit]') ~ Q('keithley measured U[V]')", data=df_set).fit()
         print(results_set.summary())
 
@@ -4226,15 +4226,15 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
         x_selected_measured = x_full_measured[from_measured_cal_row: to_measured_cal_row + 1]
         y_selected_measured = y_full_measured[from_measured_cal_row: to_measured_cal_row + 1]
 
-        print('x_selected_measured: \n', x_selected_measured)
-        print('y_selected_measured: \n', y_selected_measured)
+        # print('x_selected_measured: \n', x_selected_measured)
+        # print('y_selected_measured: \n', y_selected_measured)
 
         x_full_set = df['keithley measured U[V]']
         y_full_set = df['slave set U[bit]']
         x_selected_set = x_full_set[from_set_cal_row : to_set_cal_row + 1]
         y_selected_set = y_full_set[from_set_cal_row : to_set_cal_row + 1]
-        print('x_selected_set: \n', x_selected_set)
-        print('y_selected_set: \n', y_selected_set)
+        # print('x_selected_set: \n', x_selected_set)
+        # print('y_selected_set: \n', y_selected_set)
 
     root, extension = os.path.splitext(path_to_file)
 
@@ -4251,9 +4251,9 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
 
     ax_measured.set_xlabel('ADC counts')
     ax_measured.set_ylabel('Voltage [V]')
-    equation_measured_text = '$U =' + '{:.7f}'.format(a_measured) + '\pm' + '{da:.7f} {b:.4f}'.format(da = da_measured, b = b_measured) + \
-                    '\pm' + '{db:.4f}'.format(db = db_measured) + '$'
-    ax_measured.text(2700, 62, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkred', fontsize=10)
+    equation_measured_text = '$U =' + '{:.7f}'.format(a_measured) + '\pm' + '{:.7f}'.format(da_measured) + 'V \cdot U_{AFE,read} ' + '{:.4f}'.format(b_measured) + \
+                    '\pm' + '{:.4f}V'.format(db_measured) + '$'
+    ax_measured.text(2670, 63, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkred', fontsize=10)
     ax_measured.grid(True)
     fig_measured.savefig(root + '_measured.png')
 
@@ -4284,17 +4284,79 @@ def generate_voltage_calibration_parameters_and_plot(sipm_type: SipmType, path_t
     ax_set.plot([x0, x1], [y0, y1], '-', color='darkblue')
     ax_set.set_xlabel('Voltage [V]')
     ax_set.set_ylabel('DAC counts')
-    equation_measured_text = '$U_{AFE,set} =' + '{:.3f}'.format(a_set) + '\pm' + '{da:.3f} + {b:.2f}'.format(da = da_set, b = b_set) + \
+    equation_measured_text = '$U_{AFE,set} =' + '{:.3f}'.format(a_set) + '\pm' + '{da:.3f}'.format(da = da_set) + 'V^{-1} \cdot U_{req} + ' +' {b:.2f}'.format(b = b_set) + \
                     '\pm' + '{db:.2f}'.format(db = db_set) + '$'
-    ax_set.text(52, 4000, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkblue', fontsize=10)
+    ax_set.text(50, 4000, equation_measured_text, horizontalalignment='left', verticalalignment='top', color='darkblue', fontsize=10)
     ax_set.grid(True)
     # plt.scatter(df['keithley measured U[V]'], df['slave set U[bit]'], s=60, c='purple')
     plt.show()
     fig_set.savefig(root + '_set.png')
 
 
+def generate_current_calibration_parameters_and_plot(sipm_type: SipmType, path_to_file: str):
+    df = pd.read_csv(path_to_file)
+    R = 4.93e6
+    fig, ax = plt.subplots()
 
+    if sipm_type == SipmType.MASTER:
+        df_filtered = df.query("`AFE master measured current [bit]` > 0 and `AFE master measured current [bit]` < 4095")
+        I_AFE = df_filtered['AFE master expected set U[V]'].subtract(df_filtered['keithley measured Voltage[V]']) / R
+        I_bit = df_filtered['AFE master measured current [bit]']
+        I_bit_const = sm.add_constant(I_bit)
+        results = sm.OLS(I_AFE, I_bit_const).fit()
+        a = results.params['AFE master measured current [bit]']
+        da = results.bse['AFE master measured current [bit]']
+        b = results.params['const']
+        db = results.bse['const']
+        print(results.summary())
 
+        I_AFE_full = df['AFE master expected set U[V]'].subtract(df['keithley measured Voltage[V]']) / R
+        I_bit_full = df['AFE master measured current [bit]']
+    else:
+        df_filtered = df.query("`AFE slave measured current [bit]` > 0 and `AFE slave measured current [bit]` < 4095")
+        I_AFE = df_filtered['AFE slave expected set U[V]'].subtract(df_filtered['keithley measured Voltage[V]']) / R
+        I_bit = df_filtered['AFE slave measured current [bit]']
+        I_bit_const = sm.add_constant(I_bit)
+        results = sm.OLS(I_AFE, I_bit_const).fit()
+        a = results.params['AFE slave measured current [bit]']
+        da = results.bse['AFE slave measured current [bit]']
+        b = results.params["const"]
+        db = results.bse["const"]
+        print(results.summary())
+
+        I_AFE_full = df['AFE slave expected set U[V]'].subtract(df['keithley measured Voltage[V]']) / R
+        I_bit_full = df['AFE slave measured current [bit]']
+
+    root, extension = os.path.splitext(path_to_file)
+    ax.grid(True)
+    ax.set_xlabel('ADC counts')
+    ax.set_ylabel('Current [A]')
+    ax.plot(I_bit_full, I_AFE_full, 'o', markerfacecolor='none', color='violet')
+    ax.plot(I_bit, I_AFE, 'mo')
+
+    x0 = I_bit_full.iloc[0]
+    y0 = a * x0 + b
+
+    x1 = I_bit_full.iloc[-1]
+    y1 = a * x1 + b
+
+    ax.plot([x0, x1], [y0, y1], '-', color='darkred')
+
+    equation_text = '$I =' + '{:.4e}'.format(a) + '\pm' + '{:.4e}'.format(da) + 'A \cdot I_{AFE} +' + '{:.2e}'.format(b) + \
+                    '\pm' + '{:.2e}A'.format(db) + '$'
+    ax.text(0, 0.9E-5, equation_text, horizontalalignment='left', verticalalignment='top', color='darkred', fontsize=8)
+
+    fig.savefig(root + '.png')
+
+    dict = {'a': [a],
+            'std dev a': [da],
+            'b': [b],
+            'std dev b': [db],
+            }
+    df_params = pd.DataFrame(dict)
+    df_params.to_csv(root + '_params' + extension, index = False)
+
+    plt.show()
 
 def test_range():
     keithley = keithley_util.Keithley6517()
@@ -5491,7 +5553,7 @@ if __name__ == '__main__':
 
     # calibration3(4200, 0, 4095, 64, 12, 0.01, 10, 5,
     #              'calibration3_keithley07022024a_master_without_resistor_AFE_22_without_filter_90m.csv',
-    #              SipmType.SLAVE)
+    #              SipmType.SLAVE) #niepoprawna nazwa - zmieniono tak, żeby w nazwie było slave, zamiast master
 
     # new_current_callibration7(SipmType.SLAVE, a_slave_set_AFE_22_without_capacitors, b_slave_set_AFE_22_without_capacitors, a_slave_measured_AFE_22_without_capacitors, b_slave_measured_AFE_22_without_capacitors, 3600,
     #                           10, 60, 59, 49, 1,
@@ -5526,12 +5588,14 @@ if __name__ == '__main__':
     #                                  40, 52.0, 5, 5, 0.01,
     #                                  "current_measurement_slave_AFE12_to_histogram_test_off3")
     # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE, 'calibration3_keithley07022024a_master_without_resistor_AFE_22_without_filter_90m.csv', 3, 62, 0, 63)
-    generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
-                                                     'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
-                                                     3, 62, 0, 63)
-    # generate_voltage_calibration_parameters_and_plot(SipmType.MASTER,
-    #                                                  'calibration3_keithley02022024a_master_without_resistor_AFE_22_without_filter_90m.csv',
+    # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
+    #                                                  'calibration3_keithley24012024a_slave_without_resistor_AFE_12_old_without_filter_60m.csv',
     #                                                  3, 62, 0, 63)
+    # generate_voltage_calibration_parameters_and_plot(SipmType.SLAVE,
+    #                                                  'calibration3_keithley07022024a_slave_without_resistor_AFE_22_without_filter_90m.csv',
+    #                                                  3, 62, 0, 63)
+    # generate_current_calibration_parameters_and_plot(SipmType.MASTER, 'test_new_current_callibration7_v5.csv')
+    generate_current_calibration_parameters_and_plot(SipmType.SLAVE, 'test_new_current_callibration7_v4.csv')
 
 
 
