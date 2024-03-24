@@ -4067,6 +4067,328 @@ def new_current_callibration7(sipmType: SipmType, a_set, b_set, a_measured, b_me
             connection.close_connection()
 
 
+def new_current_callibration8(sipmType: SipmType, parameter_file_name: str, waiting_time: float,
+                              keithley_voltage1: float, waiting_time_keithley1: float, start_voltage1: float, stop_voltage1: float, step1: float,
+                              keithley_voltage2: float, waiting_time_keithley2: float, start_voltage2: float, stop_voltage2: float, step2: float,
+                              keithley_voltage3: float, waiting_time_keithley3: float, start_voltage3: float, stop_voltage3: float, step3: float,
+                              keithley_voltage4: float, waiting_time_keithley4: float, start_voltage4: float, stop_voltage4: float, step4: float,
+                              keithley_voltage5: float, waiting_time_keithley5: float, start_voltage5: float, stop_voltage5: float, step5: float,
+                              keithley_voltage6: float, waiting_time_keithley6: float, start_voltage6: float, stop_voltage6: float, step6: float,
+                              afe_avg_number: int, keithley_avg_number: int, step_time: float, keithley_waiting_time: float, file_name: str):
+    if os.path.exists(file_name):
+        raise Exception("File already exists!")
+    params = pd.read_csv(parameter_file_name)
+    a_set = params.at[0, 'a set']
+    b_set = params.at[0, 'b set']
+    a_measured = params.at[0, 'a measured']
+    b_measured = params.at[0, 'b measured']
+    # print(a_set, b_set, a_measured, b_measured)
+    start_time = time.time()
+    print("Start time:", time.ctime(start_time))
+    with open(file_name, mode='w', newline='') as csv_file:
+        try:
+            connection = lanconnection.LanConnection(ip, port)
+
+            result = connection.do_cmd(['init', bar_id])
+            if result[0] == 'ERR':
+                print("Error when init")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+
+            result = connection.do_cmd(['hvon', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvon")
+                raise ConnectionError(f"Unable to get connection to bar #{bar_id}")
+            keithley = keithley_util.Keithley6517(keithley_util.MeasurementType.CURRENT_VOLTAGE)
+
+            voltage_bit = int(a_set * start_voltage1 + b_set)
+            set_bit_voltage(voltage_bit, connection)
+            keithley.setVoltage(keithley_voltage1)
+            # time.sleep(waiting_time)
+            interval = 0
+            delta_time = 60
+            while interval < waiting_time:
+                print('time keithley: ', keithley.measure()['time'])
+                if sipmType == SipmType.MASTER:
+                    measured_voltage = connection.do_cmd(['adc', bar_id, 3])[1]
+                else:
+                    measured_voltage = connection.do_cmd(['adc', bar_id, 4])[1]
+                print('voltage AFE[bit]: ', measured_voltage)
+                time.sleep(delta_time)
+                interval += delta_time
+
+            _headers_master = (
+                'AFE master expected set U[V]', 'AFE master real set U[V]', 'AFE master measured U[V]', 'keithley measured Voltage[V]', 'stddev keithley measured Voltage[V]',
+                'AFE master measured current [bit]',
+                'AFE master stddev measured current [bit]', 'AFE number of measurements', 'time')
+            _headers_slave = (
+                'AFE slave expected set U[V]', 'AFE slave real set U[V]', 'AFE slave measured U[V]', 'keithley measured Voltage[V]', 'stddev keithley measured Voltage[V]',
+                'AFE slave measured current [bit]',
+                'AFE slave stddev measured current [bit]', 'AFE number of measurements', 'time')
+            if sipmType == SipmType.MASTER:
+                writer = csv.DictWriter(csv_file, fieldnames=_headers_master)
+            else:
+                writer = csv.DictWriter(csv_file, fieldnames=_headers_slave)
+            writer.writeheader()
+
+            set_voltage = start_voltage1
+            voltage_bit = int(a_set * start_voltage1 + b_set)
+            keithley.setVoltage(keithley_voltage1)
+            time.sleep(waiting_time_keithley1)
+            while set_voltage >= stop_voltage1:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time, keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set)/a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set)/a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step1
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+            set_voltage = start_voltage2
+            voltage_bit = int(a_set * start_voltage2 + b_set)
+            keithley.setVoltage(keithley_voltage2)
+            time.sleep(waiting_time_keithley2)
+            while set_voltage >= stop_voltage2:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time,
+                    keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step2
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+            set_voltage = start_voltage3
+            voltage_bit = int(a_set * start_voltage3 + b_set)
+            keithley.setVoltage(keithley_voltage3)
+            time.sleep(waiting_time_keithley3)
+            while set_voltage >= stop_voltage3:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time,
+                    keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step3
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+            set_voltage = start_voltage4
+            voltage_bit = int(a_set * start_voltage4 + b_set)
+            keithley.setVoltage(keithley_voltage4)
+            time.sleep(waiting_time_keithley4)
+            while set_voltage >= stop_voltage4:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time,
+                    keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step4
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+            set_voltage = start_voltage5
+            voltage_bit = int(a_set * start_voltage5 + b_set)
+            keithley.setVoltage(keithley_voltage5)
+            time.sleep(waiting_time_keithley5)
+            while set_voltage >= stop_voltage5:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time,
+                    keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step5
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+            set_voltage = start_voltage6
+            voltage_bit = int(a_set * start_voltage6 + b_set)
+            keithley.setVoltage(keithley_voltage6)
+            time.sleep(waiting_time_keithley6)
+            while set_voltage >= stop_voltage6:
+                print(set_voltage)
+                set_bit_voltage(voltage_bit, connection)
+                keithley_measured_voltage, keithley_stddev_measured_voltage = measure_keithley_avg_voltage(
+                    keithley_avg_number, keithley, keithley_waiting_time,
+                    keithley_util.MeasurementType.CURRENT_VOLTAGE)
+                if sipmType == SipmType.MASTER:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_master(connection) + b_measured
+                else:
+                    afe_measured_voltage = a_measured * measure_AFE_voltage_slave(connection) + b_measured
+                afe_current, afe_stddev_current = measure_avg_current2(afe_avg_number, sipmType, connection)
+                if sipmType == SipmType.MASTER:
+                    measure_dict = {_headers_master[0]: set_voltage,
+                                    _headers_master[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_master[2]: afe_measured_voltage,
+                                    _headers_master[3]: keithley_measured_voltage,
+                                    _headers_master[4]: keithley_stddev_measured_voltage,
+                                    _headers_master[5]: afe_current,
+                                    _headers_master[6]: afe_stddev_current,
+                                    _headers_master[7]: afe_avg_number,
+                                    _headers_master[8]: time.ctime(time.time())}
+                else:
+                    measure_dict = {_headers_slave[0]: set_voltage,
+                                    _headers_slave[1]: (int(a_set * set_voltage + b_set) - b_set) / a_set,
+                                    _headers_slave[2]: afe_measured_voltage,
+                                    _headers_slave[3]: keithley_measured_voltage,
+                                    _headers_slave[4]: keithley_stddev_measured_voltage,
+                                    _headers_slave[5]: afe_current,
+                                    _headers_slave[6]: afe_stddev_current,
+                                    _headers_slave[7]: afe_avg_number,
+                                    _headers_slave[8]: time.ctime(time.time())}
+                writer.writerow(measure_dict)
+                set_voltage -= step6
+                time.sleep(step_time)
+                voltage_bit = int(a_set * set_voltage + b_set)
+
+        except Exception as exc:
+            result = connection.do_cmd(['hvoff', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvoff")
+            connection.close_connection()
+            print(exc)
+
+        finally:
+            result = connection.do_cmd(['hvoff', bar_id])
+            if result[0] == 'ERR':
+                print("Error when hvoff")
+            print("Start time:", time.ctime(start_time))
+            print("Waiting time:", waiting_time/60)
+            end_time = time.time()
+            print("End time:", time.ctime(end_time))
+            delta_time = (end_time - start_time)/60
+            print("Delta time:", f"{delta_time:.1f}")
+            connection.close_connection()
+
+
 def current_measurement_to_histogram(sipm_type: SipmType, a_set, b_set, a_measured, b_measured, waiting_time: float,
                                      keithley_voltage: float, afe_voltage: float, afe_avg_number: int, keithley_avg_number: int, keithley_waiting_time: float, file_name: str):
     if os.path.exists(file_name):
@@ -5595,7 +5917,15 @@ if __name__ == '__main__':
     #                                                  'calibration3_keithley07022024a_slave_without_resistor_AFE_22_without_filter_90m.csv',
     #                                                  3, 62, 0, 63)
     # generate_current_calibration_parameters_and_plot(SipmType.MASTER, 'test_new_current_callibration7_v5.csv')
-    generate_current_calibration_parameters_and_plot(SipmType.SLAVE, 'test_new_current_callibration7_v4.csv')
+    # generate_current_calibration_parameters_and_plot(SipmType.SLAVE, 'test_new_current_callibration7_v4.csv')
+    new_current_callibration8(SipmType.SLAVE, 'calibration3_keithley07022024a_slave_without_resistor_AFE_22_without_filter_90m_params.csv', 1800,
+                              10, 60, 62.5, 49, 0.5,
+                              20, 60, 62.5, 49, 0.5,
+                              30, 60, 62.5, 49, 0.5,
+                              40, 60, 62.5, 49, 0.5,
+                              50, 60, 62.5, 55, 0.1,
+                              50, 30, 55, 49, 0.05,
+                              100, 5, 12, 0.01, "test_params_file")
 
 
 
